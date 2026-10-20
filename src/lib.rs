@@ -6,6 +6,7 @@
 //! for the HuMoCo Layer 2 Collision Lock Registry.
 
 pub mod crypto;
+pub mod live;
 pub mod types;
 pub mod verify;
 

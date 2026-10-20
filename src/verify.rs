@@ -7,7 +7,8 @@ use std::collections::HashSet;
 /// Verifies a Layer 2 quorum proof against an expected digest, committee, and quorum threshold.
 ///
 /// # Validation Steps:
-/// 1. Verifies that `proof.votes.len() >= required_quorum`.
+/// 1. Rejects empty, oversized or duplicate committees and zero/infeasible thresholds,
+///    then verifies vote bounds before allocating signer state.
 /// 2. Verifies that every voting signer is a member of `eligible_committee`.
 /// 3. Verifies that there are no duplicate votes from the same signer.
 /// 4. Cryptographically verifies each Ed25519 signature over `expected_digest`.
@@ -25,6 +26,22 @@ pub fn verify_quorum_proof(
     eligible_committee: &[NodePubKey],
     required_quorum: usize,
 ) -> Result<(), &'static str> {
+    // A mathematical proof always needs a nonempty, distinct eligible set and
+    // a positive feasible threshold. Reject bounds before allocating signer state.
+    if eligible_committee.is_empty()
+        || eligible_committee.len() > 20
+        || required_quorum == 0
+        || required_quorum > eligible_committee.len()
+        || eligible_committee
+            .iter()
+            .enumerate()
+            .any(|(i, key)| eligible_committee[..i].contains(key))
+    {
+        return Err("invalid committee or quorum threshold");
+    }
+    if proof.votes.len() > eligible_committee.len() {
+        return Err("too many votes");
+    }
     if proof.votes.len() < required_quorum {
         return Err("insufficient votes");
     }
@@ -59,6 +76,19 @@ mod tests {
     use crate::types::AttestationVote;
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
+
+    #[test]
+    fn empty_or_ambiguous_authority_never_forms_a_quorum() {
+        let proof = QuorumProof {
+            shard_id: 1,
+            votes: Vec::new(),
+        };
+        let key = SigningKey::from_bytes(&[1; 32]).verifying_key().to_bytes();
+        assert!(verify_quorum_proof(&proof, &[0; 32], &[], 0).is_err());
+        assert!(verify_quorum_proof(&proof, &[0; 32], &[key], 0).is_err());
+        assert!(verify_quorum_proof(&proof, &[0; 32], &[key, key], 1).is_err());
+        assert!(verify_quorum_proof(&proof, &[0; 32], &[key], 2).is_err());
+    }
 
     fn make_test_signer(seed: u8) -> (SigningKey, NodePubKey) {
         let sk = SigningKey::from_bytes(&[seed; 32]);
@@ -122,7 +152,8 @@ mod tests {
         let digest = [0x5au8; 32];
         let (sk1, pk1) = make_test_signer(1);
         let (sk_rogue, pk_rogue) = make_test_signer(99);
-        let committee = vec![pk1];
+        let (_, pk2) = make_test_signer(2);
+        let committee = vec![pk1, pk2];
 
         let proof = QuorumProof {
             shard_id: 1,
@@ -146,7 +177,8 @@ mod tests {
     fn test_duplicate_signer() {
         let digest = [0x5au8; 32];
         let (sk1, pk1) = make_test_signer(1);
-        let committee = vec![pk1];
+        let (_, pk2) = make_test_signer(2);
+        let committee = vec![pk1, pk2];
 
         let proof = QuorumProof {
             shard_id: 1,

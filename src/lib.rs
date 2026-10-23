@@ -16,3 +16,5 @@ pub use verify::*;
 
 /// Recipient-configured signed regional mesh views.
 pub mod mesh;
+
+pub mod causal;

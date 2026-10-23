@@ -13,7 +13,7 @@ pub type SignatureBytes = [u8; 64];
 
 /// Custom serializer and deserializer for 64-byte fixed-size arrays.
 pub mod serde_bytes_64 {
-    use serde::{Deserializer, Serializer, de::Error};
+    use serde::{de::Error, Deserializer, Serializer};
 
     /// Serializes a 64-byte array as raw bytes.
     pub fn serialize<S>(bytes: &[u8; 64], serializer: S) -> Result<S::Ok, S::Error>
@@ -141,8 +141,7 @@ mod tests {
         };
 
         let encoded = bincode::serialize(&proof).expect("serialization failed");
-        let decoded: QuorumProof =
-            bincode::deserialize(&encoded).expect("deserialization failed");
+        let decoded: QuorumProof = bincode::deserialize(&encoded).expect("deserialization failed");
         assert_eq!(proof, decoded);
     }
 

@@ -13,3 +13,6 @@ pub mod verify;
 pub use crypto::*;
 pub use types::*;
 pub use verify::*;
+
+/// Recipient-configured signed regional mesh views.
+pub mod mesh;

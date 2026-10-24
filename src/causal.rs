@@ -79,7 +79,18 @@ mod tests {
     #[test]
     fn versioned_output_commitment_binds_every_causal_field() {
         let key = SigningKey::from_bytes(&[7; 32]);
-        let mut proof = CausalOutputProof { version: 1, voucher_id: "voucher".into(), transaction_id: [1; 32], state_hash: [2; 32], sender_pubkey: key.verifying_key().to_bytes(), receiver_pubkey_hash: Some([3; 32]), change_pubkey_hash: Some([4; 32]), root_valid_until_ms: 50_000, is_root: true, signature: [0; 64] };
+        let mut proof = CausalOutputProof {
+            version: 1,
+            voucher_id: "voucher".into(),
+            transaction_id: [1; 32],
+            state_hash: [2; 32],
+            sender_pubkey: key.verifying_key().to_bytes(),
+            receiver_pubkey_hash: Some([3; 32]),
+            change_pubkey_hash: Some([4; 32]),
+            root_valid_until_ms: 50_000,
+            is_root: true,
+            signature: [0; 64],
+        };
         proof.signature = key.sign(&proof.digest().unwrap()).to_bytes();
         assert!(proof.verify());
         for field in 0..8 {

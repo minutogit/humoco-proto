@@ -2,19 +2,19 @@
 #![deny(missing_docs)]
 
 //! # humoco-proto
-//! Canonical wire formats, domain separators, and zero-trust receipt verifiers
-//! for the HuMoCo Layer 2 Collision Lock Registry.
+//! Canonical wire formats, domain separators, retention policies, and zero-trust
+//! Sync Lock verifiers for HuMoCo.
 
+pub mod causal;
 pub mod crypto;
-pub mod live;
+pub mod manifest;
+pub mod retention;
 pub mod types;
 pub mod verify;
 
+pub use causal::*;
 pub use crypto::*;
+pub use manifest::*;
+pub use retention::*;
 pub use types::*;
 pub use verify::*;
-
-/// Recipient-configured signed regional mesh views.
-pub mod mesh;
-
-pub mod causal;

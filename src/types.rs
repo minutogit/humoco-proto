@@ -11,10 +11,13 @@ pub const MAX_COMMITTEE_SIZE: usize = 5;
 /// 32-byte Ed25519 public key identifying a Sync Lock server (`lock_pub`).
 pub type LockPubKey = [u8; 32];
 
-/// Decodes a strict lowercase/canonical hex string into a fixed-size byte array `[u8; N]`.
+/// Decodes a strict lowercase hex string into a fixed-size byte array `[u8; N]`.
 pub fn decode_hex_fixed<const N: usize>(hex_str: &str) -> Result<[u8; N], &'static str> {
     if hex_str.len() != N * 2 {
         return Err("invalid hex length");
+    }
+    if hex_str.bytes().any(|b| b.is_ascii_uppercase()) {
+        return Err("hex must be lowercase");
     }
     let mut out = [0u8; N];
     hex::decode_to_slice(hex_str, &mut out).map_err(|_| "invalid hex characters")?;
@@ -377,4 +380,46 @@ pub enum CheckoutVerdict {
     Yellow,
     /// Double-spend conflict (`ConflictSeen` / equivocation) or failed retention policy (`init.deletable_at`).
     Red,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+    struct OptHexWrap {
+        #[serde(with = "serde_hex_opt_32")]
+        anchor: Option<[u8; 32]>,
+    }
+
+    #[test]
+    fn test_decode_hex_fixed_rejects_uppercase() {
+        let lower = "aa".repeat(32);
+        assert_eq!(decode_hex_fixed::<32>(&lower), Ok([0xaa; 32]));
+        let upper = "AA".repeat(32);
+        assert_eq!(decode_hex_fixed::<32>(&upper), Err("hex must be lowercase"));
+    }
+
+    #[test]
+    fn test_serde_hex_opt_32_json_and_bincode() {
+        let none_w = OptHexWrap { anchor: None };
+        assert_eq!(
+            serde_json::to_string(&none_w).unwrap(),
+            r#"{"anchor":null}"#
+        );
+        let some_w = OptHexWrap {
+            anchor: Some([0xAB; 32]),
+        };
+        let json = serde_json::to_string(&some_w).unwrap();
+        assert_eq!(json, format!(r#"{{"anchor":"{}"}}"#, "ab".repeat(32)));
+        assert_eq!(serde_json::from_str::<OptHexWrap>(&json).unwrap(), some_w);
+
+        // Uppercase rejected on deserialize too
+        let upper_json = format!(r#"{{"anchor":"{}"}}"#, "AB".repeat(32));
+        assert!(serde_json::from_str::<OptHexWrap>(&upper_json).is_err());
+
+        // Bincode roundtrip
+        let bin = bincode::serialize(&some_w).unwrap();
+        assert_eq!(bincode::deserialize::<OptHexWrap>(&bin).unwrap(), some_w);
+    }
 }

@@ -1,7 +1,10 @@
 //! Anchor manifest, server committee entries, and offline genesis tickets (`SPEC.md` §6.3, §6.5).
 
-use crate::crypto::{verify_ed25519_strict, ANCHOR_MANIFEST_DOMAIN, GENESIS_TICKET_DOMAIN};
+use crate::crypto::{
+    verify_ed25519_strict, ANCHOR_MANIFEST_DOMAIN, GENESIS_TICKET_DOMAIN, MAX_MIGRATION_CHAIN_LEN,
+};
 use crate::retention::decode_quarter;
+use crate::rotation::{verify_anchor_manifest_chain, ChainVerificationReport, MigrationCert};
 use crate::types::{serde_hex_32, serde_hex_64, serde_hex_vec_32, LockCommittee, LockPubKey};
 use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
@@ -138,7 +141,7 @@ pub struct AnchorManifest {
     /// Creator and guarantor migration authorization public keys.
     pub authority: AnchorAuthority,
     /// Ordered migration certificates linking Genesis Revision 1 to `revision` (empty when `revision == 1`).
-    pub migration_chain: Vec<Vec<u8>>,
+    pub migration_chain: Vec<MigrationCert>,
     /// Manifest creation timestamp in UTC Unix milliseconds.
     pub issued_at_ms: u64,
     /// Immutable bucket lock retention quarter (`YYYY-QN` encoded as `year * 4 + (q - 1)`).
@@ -146,10 +149,14 @@ pub struct AnchorManifest {
 }
 
 impl AnchorManifest {
-    /// Validates all committee, authority, URL, key, and retention invariants.
-    pub fn validate(&self) -> Result<(), &'static str> {
+    /// Validates structural fields, committee bounds, authority keys, URLs, and chain length
+    /// without recursing into embedded `migration_chain` certificates.
+    pub fn validate_local(&self) -> Result<(), &'static str> {
         if self.revision == 0 {
             return Err("manifest revision must be >= 1");
+        }
+        if self.migration_chain.len() > MAX_MIGRATION_CHAIN_LEN {
+            return Err("migration_chain exceeds maximum length");
         }
         if self.revision == 1 && !self.migration_chain.is_empty() {
             return Err("revision 1 manifest must have empty migration_chain");
@@ -185,6 +192,61 @@ impl AnchorManifest {
         Ok(())
     }
 
+    /// Validates all committee, authority, retention, and full cryptographic `migration_chain` invariants.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        self.verify_chain_report().map(|_| ())
+    }
+
+    /// Verifies the manifest structurally and cryptographically from Genesis Rev 1, returning the
+    /// full [`ChainVerificationReport`].
+    pub fn verify_chain_report(&self) -> Result<ChainVerificationReport, &'static str> {
+        self.validate_local()?;
+        if self.revision == 1 {
+            let anchor_id = self.rev1_anchor_id()?;
+            return Ok(ChainVerificationReport {
+                anchor_id,
+                guarantor_protection_reduced: false,
+                historical_committees: vec![self.committee()?],
+            });
+        }
+        let genesis = self
+            .migration_chain
+            .first()
+            .and_then(|cert| cert.genesis_manifest.as_deref())
+            .ok_or("multi-revision manifest missing genesis_manifest in migration_chain[0]")?;
+        genesis.validate_local()?;
+        if genesis.revision != 1 {
+            return Err("embedded genesis_manifest must be revision 1");
+        }
+        let expected_anchor = genesis.rev1_anchor_id()?;
+        verify_anchor_manifest_chain(self, &expected_anchor)
+    }
+
+    /// Extracts and verifies the immutable Genesis revision-1 `anchor_id` for both
+    /// `revision == 1` manifests and multi-revision rotated manifests.
+    pub fn effective_anchor_id(&self) -> Result<[u8; 32], &'static str> {
+        self.verify_chain_report().map(|r| r.anchor_id)
+    }
+
+    /// Verifies that this manifest cryptographically links back to `expected_anchor_id` at Genesis Rev 1.
+    pub fn verify_anchor_id(
+        &self,
+        expected_anchor_id: &[u8; 32],
+    ) -> Result<ChainVerificationReport, &'static str> {
+        verify_anchor_manifest_chain(self, expected_anchor_id)
+    }
+
+    /// Returns all cryptographically verified `LockCommittee` snapshots across `Rev 1..=self.revision`.
+    pub fn verified_committees(&self) -> Result<Vec<LockCommittee>, &'static str> {
+        self.verify_chain_report().map(|r| r.historical_committees)
+    }
+
+    /// Returns `true` if any migration along the verified chain reduced guarantor protection.
+    pub fn has_reduced_guarantor_protection(&self) -> Result<bool, &'static str> {
+        self.verify_chain_report()
+            .map(|r| r.guarantor_protection_reduced)
+    }
+
     /// Extracts the `LockCommittee` view (`members`, `threshold`) from `self.servers`.
     pub fn committee(&self) -> Result<LockCommittee, &'static str> {
         let committee = LockCommittee {
@@ -201,7 +263,7 @@ impl AnchorManifest {
         if self.revision != 1 {
             return Err("rev1_anchor_id must be computed on revision 1 manifest");
         }
-        self.validate()?;
+        self.validate_local()?;
 
         let mut buf = Vec::with_capacity(512);
         buf.extend_from_slice(ANCHOR_MANIFEST_DOMAIN);

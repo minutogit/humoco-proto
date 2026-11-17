@@ -60,11 +60,53 @@ pub const BUCKET_STEP_DOMAIN: &[u8] = b"HUMOCO_BUCKET_STEP_V1";
 /// Domain tag for server-signed `LockReceipt` digests (`SPEC.md` §6.6).
 pub const LOCK_RECEIPT_DOMAIN: &[u8] = b"HUMOCO_LOCK_RECEIPT_V1";
 
+/// Domain tag for `MigrationProposal` core digests (`SPEC.md` §6.10, Concept §5.4).
+pub const MIGRATION_PROPOSAL_DOMAIN: &[u8] = b"HUMOCO_MIGRATION_PROP_V1";
+
+/// Domain tag for authority `MigrationVeto` digests (`SPEC.md` §6.10, Concept §5.4).
+pub const MIGRATION_VETO_DOMAIN: &[u8] = b"HUMOCO_MIGRATION_VETO_V1";
+
+/// Domain tag for signed `CreatorHeartbeat` liveness proofs (`SPEC.md` §6.10, Concept §5.4).
+pub const CREATOR_HEARTBEAT_DOMAIN: &[u8] = b"HUMOCO_CREATOR_HB_V1";
+
+/// Domain tag for server-signed `FreezeSnapshot` manifests (`SPEC.md` §6.10).
+pub const FREEZE_SNAPSHOT_DOMAIN: &[u8] = b"HUMOCO_FREEZE_SNAP_V1";
+
+/// Domain tag for deterministic bucket content hashing inside `FreezeSnapshot` (`SPEC.md` §6.10).
+pub const FREEZE_STATE_DOMAIN: &[u8] = b"HUMOCO_FREEZE_STATE_V1";
+
+/// Domain tag for deterministic imported-state commitments in `ImportAck` / `MigrationCert`.
+pub const IMPORT_UNION_STATE_DOMAIN: &[u8] = b"HUMOCO_IMPORT_STATE_V1";
+
+/// Domain tag for target-server `ImportAck` receipts (`SPEC.md` §6.10).
+pub const IMPORT_ACK_DOMAIN: &[u8] = b"HUMOCO_IMPORT_ACK_V1";
+
+/// Domain tag for old-quorum `MigrationCert` commit signatures (`SPEC.md` §6.10).
+pub const MIGRATION_CERT_DOMAIN: &[u8] = b"HUMOCO_MIGRATION_CERT_V1";
+
+/// Domain tag for creator `KeySuccessorAttestation` signatures (`SPEC.md` / Concept §5.5).
+pub const KEY_SUCCESSOR_DOMAIN: &[u8] = b"HUMOCO_KEY_SUCCESSOR_V1";
+
 /// Default baseline proof-of-work difficulty in leading zero bits for `POST ?lock`.
 pub const DEFAULT_LOCK_POW_BASE_BITS: u32 = 8;
 
 /// Hard upper bound on depth-progressive lock proof-of-work difficulty in leading zero bits.
 pub const MAX_LOCK_POW_BITS: u32 = 24;
+
+/// Maximum age in seconds for an un-proposed pre-freeze (`1800 s` = 30 min, Concept §5.4 / `LÜCKE-04c`).
+pub const PRE_PROPOSAL_FREEZE_TTL_SECS: u64 = 1_800;
+
+/// Mandatory proposal timelock in seconds allowing authority vetoes (`72 h`, Concept §5.4).
+pub const PROPOSAL_TIMELOCK_SECS: u64 = 72 * 3_600;
+
+/// Creator inactivity duration in seconds before guarantors may initiate rotation/swap (`30 d`).
+pub const CREATOR_INACTIVITY_TAKEOVER_SECS: u64 = 30 * 86_400;
+
+/// Claim window in seconds before dead-quorum re-issuance (`30 d`, Concept §5.7 / `LÜCKE-04c`).
+pub const DEAD_QUORUM_CLAIM_WINDOW_SECS: u64 = 30 * 86_400;
+
+/// Hard upper bound on `migration_chain` length to prevent unbounded manifest verification DoS.
+pub const MAX_MIGRATION_CHAIN_LEN: usize = 64;
 
 type HmacSha256 = Hmac<Sha256>;
 

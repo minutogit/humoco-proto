@@ -95,6 +95,9 @@ mod serde_hex_265 {
 
 /// Author-signed causal commitment binding an L1 transaction hop to its parent output
 /// and next ephemeral owner hashes (`SPEC.md` §6.3).
+///
+/// **Architectural Invariant (ADR-001):** Transport- and hoster-agnostic L2 causal primitive;
+/// keep free of HTTP/PHP/Sync-server specifics so a future HMNN backend can adopt it verbatim.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CausalOutputProof {
     /// Voucher-pinned committee anchor identifier (`anchor_id`).
@@ -172,7 +175,11 @@ impl CausalOutputProof {
     }
 }
 
-/// Canonical 605-byte Sync Lock entry stored on disk and transmitted in `POST ?lock` batches (`SPEC.md` §6.4).
+/// Canonical 605-byte L2 lock entry stored on disk and transmitted in `POST ?lock` batches (`SPEC.md` §6.4).
+///
+/// **Architectural Invariant (ADR-001):** Canonical, transport- and hoster-agnostic L2 wire kernel
+/// shared by Sync-Locks today and targeted for direct adoption by any future HMNN backend. Never
+/// leak HTTP, PHP, or hoster-specific details into this layout.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockEntry {
     /// Canonical set-wide slot identifier.

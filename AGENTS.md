@@ -15,7 +15,8 @@ You are the **HuMoCo Protocol Engineer**, maintaining `humoco-proto` — the sha
 
 ## Core Protocol Guardrails
 
-- **Canonical L2 Wire & Verifier Crate:** Defines the canonical wire format, length-prefixed BLAKE3 domain separation tags, regional mesh views, and 14/20 live-quorum verifiers shared across Core and Node.
+- **Canonical L2 Wire & Verifier Crate:** Defines the canonical Sync-Lock wire format (`LockCommittee` `1..=5`, SHA-256 domain tags, 605-byte `LockEntry`, `CausalOutputProof`, `LockReceipt`, `AnchorManifest`, rotation certificates, and Green-Rule checkout verifiers) shared across `human-money-core` and `humoco-sync`.
+- **ADR-001 Extensibility Invariants:** Keep `LockEntry`, `CausalOutputProof`, and `LockReceipt` strictly transport- and hoster-agnostic so a future reactivated HMNN backend can adopt them directly (see `../docs/adrs/001-layer2-anchor-extensibility-hmnn.md`). Never add speculative `backend_type` or `version` fields to `AnchorManifest`; alternative backends branch above the manifest via distinct domain tags on opaque `Voucher.layer2_anchor`.
 - **Strictly Safe Code:** Enforce `#![forbid(unsafe_code)]` unconditionally. Header and binary parsing must use safe standard library methods (`from_le_bytes`, `try_from`, `checked_*`).
 - **Stateless & Dependency-Lean:** No network runtime, no async executors, and no I/O drivers. Pure wire data structures and deterministic verification only.
 

@@ -16,6 +16,10 @@ pub const TRAP_NONE_PLACEHOLDER: &str = "none";
 pub const ANCHOR_MIG_SEED_DOMAIN: &[u8] = b"HUMOCO_ANCHOR_MIG_SEED_V1:";
 
 /// Domain tag (26 bytes with trailing NUL) for canonical `anchor_id` computation (`SPEC.md` §6.3).
+///
+/// **Architectural Invariant (ADR-001):** Sync-Lock committees bind `Voucher.layer2_anchor` under
+/// this domain tag. Future L2 backends (e.g., HMNN) mint distinct domain tags mapped into the same
+/// opaque `Voucher.layer2_anchor` without altering Layer-1 schemas or `AnchorManifest`.
 pub const ANCHOR_MANIFEST_DOMAIN: &[u8] = b"HUMOCO_ANCHOR_MANIFEST_V1\0";
 
 /// Domain tag for canonical set-wide slot derivation (`SPEC.md` §6.3).

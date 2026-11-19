@@ -289,6 +289,9 @@ impl LockReceiptKind {
 }
 
 /// Server-signed lock write/conflict receipt (`SPEC.md` §6.6.2).
+///
+/// **Architectural Invariant (ADR-001):** Transport-agnostic lock attestation primitive shared
+/// across Sync-Locks and intended for reuse by any future HMNN backend.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockReceipt {
     /// Outcome (`first_write` or `conflict_seen`).

@@ -128,6 +128,10 @@ impl AnchorAuthority {
 }
 
 /// Voucher-pinned Sync Lock committee manifest (`SPEC.md` §6.3, Concept §4.1–4.2).
+///
+/// **Architectural Invariant (ADR-001):** Intentionally models only Sync-Lock committees (`1..=5`
+/// HTTPS servers) with NO `backend_type` or `version` field. Alternative L2 backends (such as a
+/// future HMNN mesh) branch above the manifest via distinct domain tags on `Voucher.layer2_anchor`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnchorManifest {
     /// Manifest revision (`1` at Genesis; incremented monotonically on rotation).
@@ -259,6 +263,10 @@ impl AnchorManifest {
 
     /// Computes the canonical 32-byte `anchor_id` (`HUMOCO_ANCHOR_MANIFEST_V1`) matching
     /// Layer 1 `voucher.layer2_anchor` (`SPEC.md` §6.3).
+    ///
+    /// Domain separation (`ANCHOR_MANIFEST_DOMAIN`) keeps `Voucher.layer2_anchor` opaque and
+    /// allows future L2 backends to introduce separate anchor formats under distinct domain tags
+    /// (`ADR-001`) without breaking `AnchorManifest` or Layer 1.
     pub fn rev1_anchor_id(&self) -> Result<[u8; 32], &'static str> {
         if self.revision != 1 {
             return Err("rev1_anchor_id must be computed on revision 1 manifest");

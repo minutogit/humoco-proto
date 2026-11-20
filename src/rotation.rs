@@ -235,6 +235,22 @@ where
     }
 }
 
+/// Returns `true` iff `proposal` strictly expands `prev_manifest` by preserving every existing
+/// active server identity while increasing committee size and keeping `new_threshold >= prev.threshold`.
+pub fn is_pure_committee_growth(
+    prev_manifest: &AnchorManifest,
+    proposal: &MigrationProposal,
+) -> bool {
+    proposal.new_servers.len() > prev_manifest.servers.len()
+        && proposal.new_threshold >= prev_manifest.threshold
+        && prev_manifest.servers.iter().all(|old_s| {
+            proposal
+                .new_servers
+                .iter()
+                .any(|new_s| new_s.same_identity(old_s))
+        })
+}
+
 /// Pure verifier enforcing Concept §5.4 nomination-binding across revisions:
 ///
 /// - A `HolderStandby` proposal may only swap active slots with the next declared standby
@@ -329,6 +345,13 @@ pub fn verify_nomination_binding(
         && new_creator_cnt > prev_creator_cnt
     {
         return Err("cannot expand creator-nominated seats without all guarantors co-signing");
+    }
+
+    if prev_manifest.authority.guarantor_mig_pubs.is_empty()
+        && prev_manifest.threshold >= 2
+        && proposal.new_threshold < 2
+    {
+        return Err("cannot shrink multi-server committee below threshold 2");
     }
 
     Ok(NominationCheckOutcome {
@@ -1808,5 +1831,140 @@ mod tests {
         prop.proposer_sig = Some(creator_mig_sk.sign(&prop.core_digest().unwrap()).to_bytes());
         let outcome = verify_nomination_binding(&rev1, &prop).unwrap();
         assert!(!outcome.guarantor_protection_reduced);
+    }
+
+    #[test]
+    fn test_k4_pure_growth_and_monotone_quorum_floor() {
+        let creator_mig_sk = SigningKey::from_bytes(&[203; 32]);
+        let (s1, _, _) = make_server(1, NominatedBy::Creator);
+        let (s2, _, _) = make_server(2, NominatedBy::Creator);
+        let (s3, _, _) = make_server(3, NominatedBy::Creator);
+        let (s4, _, _) = make_server(4, NominatedBy::Creator);
+        let q = encode_quarter(2035, 4).unwrap();
+
+        // 1 -> 3 growth is pure committee growth and allowed
+        let rev1_single = AnchorManifest {
+            revision: 1,
+            threshold: 1,
+            servers: vec![s1.clone()],
+            successors: Vec::new(),
+            authority: AnchorAuthority {
+                creator_mig_pub: creator_mig_sk.verifying_key().to_bytes(),
+                guarantor_mig_pubs: Vec::new(),
+            },
+            migration_chain: Vec::new(),
+            issued_at_ms: 1_760_000_000_000,
+            retain_until_quarter: q,
+        };
+        let aid_single = rev1_single.rev1_anchor_id().unwrap();
+        let mut grow_prop = MigrationProposal {
+            anchor_id: aid_single,
+            from_rev: 1,
+            to_rev: 2,
+            new_threshold: 2,
+            new_servers: vec![s1.clone(), s2.clone(), s3.clone()],
+            new_successors: Vec::new(),
+            retain_until_quarter: q,
+            proposed_at: 1_760_100_000,
+            initiator: ProposalInitiator::Creator,
+            proposer_sig: None,
+            guarantor_cosigs: Vec::new(),
+        };
+        grow_prop.proposer_sig = Some(
+            creator_mig_sk
+                .sign(&grow_prop.core_digest().unwrap())
+                .to_bytes(),
+        );
+        assert!(is_pure_committee_growth(&rev1_single, &grow_prop));
+        assert!(grow_prop
+            .verify_against_manifest(&aid_single, &rev1_single)
+            .is_ok());
+
+        // Replacement 3 -> 3 is valid, NOT pure growth
+        let rev1_three = AnchorManifest {
+            revision: 1,
+            threshold: 2,
+            servers: vec![s1.clone(), s2.clone(), s3.clone()],
+            successors: Vec::new(),
+            authority: AnchorAuthority {
+                creator_mig_pub: creator_mig_sk.verifying_key().to_bytes(),
+                guarantor_mig_pubs: Vec::new(),
+            },
+            migration_chain: Vec::new(),
+            issued_at_ms: 1_760_000_000_000,
+            retain_until_quarter: q,
+        };
+        let aid_three = rev1_three.rev1_anchor_id().unwrap();
+        let mut replace_prop = MigrationProposal {
+            anchor_id: aid_three,
+            from_rev: 1,
+            to_rev: 2,
+            new_threshold: 2,
+            new_servers: vec![s1.clone(), s2.clone(), s4.clone()],
+            new_successors: Vec::new(),
+            retain_until_quarter: q,
+            proposed_at: 1_760_100_000,
+            initiator: ProposalInitiator::Creator,
+            proposer_sig: None,
+            guarantor_cosigs: Vec::new(),
+        };
+        replace_prop.proposer_sig = Some(
+            creator_mig_sk
+                .sign(&replace_prop.core_digest().unwrap())
+                .to_bytes(),
+        );
+        assert!(!is_pure_committee_growth(&rev1_three, &replace_prop));
+        assert!(replace_prop
+            .verify_against_manifest(&aid_three, &rev1_three)
+            .is_ok());
+
+        // Shrink 3(Q=2) -> 2(Q=2) is allowed (still threshold >= 2, not pure growth)
+        let mut shrink_to_two = MigrationProposal {
+            anchor_id: aid_three,
+            from_rev: 1,
+            to_rev: 2,
+            new_threshold: 2,
+            new_servers: vec![s1.clone(), s2],
+            new_successors: Vec::new(),
+            retain_until_quarter: q,
+            proposed_at: 1_760_100_000,
+            initiator: ProposalInitiator::Creator,
+            proposer_sig: None,
+            guarantor_cosigs: Vec::new(),
+        };
+        shrink_to_two.proposer_sig = Some(
+            creator_mig_sk
+                .sign(&shrink_to_two.core_digest().unwrap())
+                .to_bytes(),
+        );
+        assert!(!is_pure_committee_growth(&rev1_three, &shrink_to_two));
+        assert!(shrink_to_two
+            .verify_against_manifest(&aid_three, &rev1_three)
+            .is_ok());
+
+        // Collapse 3(Q=2) -> 1(Q=1) with empty guarantor_mig_pubs MUST be rejected
+        let mut collapse_to_one = MigrationProposal {
+            anchor_id: aid_three,
+            from_rev: 1,
+            to_rev: 2,
+            new_threshold: 1,
+            new_servers: vec![s1],
+            new_successors: Vec::new(),
+            retain_until_quarter: q,
+            proposed_at: 1_760_100_000,
+            initiator: ProposalInitiator::Creator,
+            proposer_sig: None,
+            guarantor_cosigs: Vec::new(),
+        };
+        collapse_to_one.proposer_sig = Some(
+            creator_mig_sk
+                .sign(&collapse_to_one.core_digest().unwrap())
+                .to_bytes(),
+        );
+        assert!(!is_pure_committee_growth(&rev1_three, &collapse_to_one));
+        let err = collapse_to_one
+            .verify_against_manifest(&aid_three, &rev1_three)
+            .unwrap_err();
+        assert!(err.contains("threshold 2"));
     }
 }

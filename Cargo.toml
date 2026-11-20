@@ -1,6 +1,6 @@
 [package]
 name = "humoco-proto"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Canonical wire protocol, DTOs, and zero-trust verifiers for HuMoCo Layer 2"
 license = "MIT OR Apache-2.0"

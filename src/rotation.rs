@@ -118,13 +118,13 @@ impl MigrationProposal {
             u8::try_from(self.new_servers.len()).map_err(|_| "new_servers count overflow")?;
         buf.push(server_count);
         for s in &self.new_servers {
-            s.write_canonical(&mut buf)?;
+            s.write_canonical(&mut buf);
         }
         let succ_count = u16::try_from(self.new_successors.len())
             .map_err(|_| "new_successors count overflow")?;
         buf.extend_from_slice(&succ_count.to_le_bytes());
         for s in &self.new_successors {
-            s.write_canonical(&mut buf)?;
+            s.write_canonical(&mut buf);
         }
         buf.extend_from_slice(&self.retain_until_quarter.to_le_bytes());
         buf.extend_from_slice(&self.proposed_at.to_le_bytes());
@@ -219,6 +219,22 @@ impl MigrationProposal {
     }
 }
 
+fn server_slices_same_identity<'a, I1, I2>(a: I1, b: I2) -> bool
+where
+    I1: IntoIterator<Item = &'a ServerEntry>,
+    I2: IntoIterator<Item = &'a ServerEntry>,
+{
+    let mut ia = a.into_iter();
+    let mut ib = b.into_iter();
+    loop {
+        match (ia.next(), ib.next()) {
+            (Some(sa), Some(sb)) if sa.same_identity(sb) => continue,
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
+}
+
 /// Pure verifier enforcing Concept §5.4 nomination-binding across revisions:
 ///
 /// - A `HolderStandby` proposal may only swap active slots with the next declared standby
@@ -237,12 +253,12 @@ pub fn verify_nomination_binding(
         {
             return Err("holder standby rotation cannot alter committee size or threshold");
         }
-        if proposal.new_servers == prev_manifest.servers {
+        if server_slices_same_identity(&proposal.new_servers, &prev_manifest.servers) {
             return Err("holder standby rotation must replace at least one server");
         }
         let mut standby_pool = prev_manifest.successors.clone();
         for (old_s, new_s) in prev_manifest.servers.iter().zip(&proposal.new_servers) {
-            if new_s == old_s {
+            if new_s.same_identity(old_s) {
                 continue;
             }
             let next_pos = standby_pool
@@ -250,11 +266,11 @@ pub fn verify_nomination_binding(
                 .position(|cand| cand.nominated_by == old_s.nominated_by)
                 .ok_or("no declared standby successor available for slot origin")?;
             let expected_succ = standby_pool.remove(next_pos);
-            if *new_s != expected_succ {
+            if !new_s.same_identity(&expected_succ) {
                 return Err("holder standby rotation must promote the next declared successor");
             }
         }
-        if proposal.new_successors != standby_pool {
+        if !server_slices_same_identity(&proposal.new_successors, &standby_pool) {
             return Err("holder standby rotation must remove exactly the promoted successors");
         }
         return Ok(NominationCheckOutcome {
@@ -363,13 +379,16 @@ fn check_unsigned_role_servers_and_successors(
         return Err("replacement server is not in declared standby successors");
     }
     for (idx, added_srv) in added.iter().enumerate() {
-        if *added_srv != prev_succ[idx] {
+        if !added_srv.same_identity(prev_succ[idx]) {
             return Err("standby successors must be promoted in declared FIFO order");
         }
     }
     let remaining_succ = &prev_succ[added.len()..];
     if new_succ.len() != remaining_succ.len()
-        || new_succ.iter().zip(remaining_succ).any(|(a, b)| a != b)
+        || new_succ
+            .iter()
+            .zip(remaining_succ)
+            .any(|(a, b)| !a.same_identity(b))
     {
         return Err("unpromoted successors must remain unchanged for un-signed nominator");
     }
@@ -1742,5 +1761,52 @@ mod tests {
         let mut tampered = notice.clone();
         tampered.effective_at += 1;
         assert!(tampered.verify(&admin_pub).is_err());
+    }
+
+    #[test]
+    fn test_nomination_binding_ignores_locator_url_relocation() {
+        let (s1, _, _) = make_server(1, NominatedBy::Creator);
+        let (s2, _, _) = make_server(2, NominatedBy::Guarantor(0));
+        let (s3, _, _) = make_server(3, NominatedBy::Creator);
+        let (s4, _, _) = make_server(4, NominatedBy::Creator);
+        let creator_mig_sk = SigningKey::from_bytes(&[100; 32]);
+        let g0_mig_pub = SigningKey::from_bytes(&[101; 32])
+            .verifying_key()
+            .to_bytes();
+        let rev1 = AnchorManifest {
+            revision: 1,
+            threshold: 2,
+            servers: vec![s1.clone(), s2.clone(), s3],
+            successors: vec![s4.clone()],
+            authority: AnchorAuthority {
+                creator_mig_pub: creator_mig_sk.verifying_key().to_bytes(),
+                guarantor_mig_pubs: vec![g0_mig_pub],
+            },
+            migration_chain: Vec::new(),
+            issued_at_ms: 1_760_000_000_000,
+            retain_until_quarter: encode_quarter(2031, 1).unwrap(),
+        };
+        let anchor_id = rev1.rev1_anchor_id().unwrap();
+
+        let mut relocated_s2 = s2.clone();
+        relocated_s2.write_url = "https://relocated-g0.example/sync.php".into();
+        relocated_s2.read_url = "https://relocated-g0.example/d-0".into();
+
+        let mut prop = MigrationProposal {
+            anchor_id,
+            from_rev: 1,
+            to_rev: 2,
+            new_threshold: 2,
+            new_servers: vec![s1, relocated_s2, s4],
+            new_successors: Vec::new(),
+            retain_until_quarter: rev1.retain_until_quarter,
+            proposed_at: 1_760_100_000,
+            initiator: ProposalInitiator::Creator,
+            proposer_sig: None,
+            guarantor_cosigs: Vec::new(),
+        };
+        prop.proposer_sig = Some(creator_mig_sk.sign(&prop.core_digest().unwrap()).to_bytes());
+        let outcome = verify_nomination_binding(&rev1, &prop).unwrap();
+        assert!(!outcome.guarantor_protection_reduced);
     }
 }

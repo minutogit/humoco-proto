@@ -80,18 +80,22 @@ impl ServerEntry {
         Ok(())
     }
 
+    /// Returns `true` when two server entries represent the same cryptographic operator identity
+    /// (`admin_pub`, `lock_pub`, and `nominated_by`), ignoring mutable locator URLs.
+    pub fn same_identity(&self, other: &Self) -> bool {
+        self.admin_pub == other.admin_pub
+            && self.lock_pub == other.lock_pub
+            && self.nominated_by == other.nominated_by
+    }
+
     /// Appends the canonical byte encoding used inside `HUMOCO_ANCHOR_MANIFEST_V1` (`SPEC.md` §6.3).
-    pub fn write_canonical(&self, out: &mut Vec<u8>) -> Result<(), &'static str> {
-        let write_len = u16::try_from(self.write_url.len()).map_err(|_| "write_url too long")?;
-        let read_len = u16::try_from(self.read_url.len()).map_err(|_| "read_url too long")?;
-        out.extend_from_slice(&write_len.to_le_bytes());
-        out.extend_from_slice(self.write_url.as_bytes());
-        out.extend_from_slice(&read_len.to_le_bytes());
-        out.extend_from_slice(self.read_url.as_bytes());
+    ///
+    /// Intentionally excludes mutable locator URLs (`write_url`/`read_url`) so server domain
+    /// relocations preserve the voucher's immutable `anchor_id`.
+    pub fn write_canonical(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.admin_pub);
         out.extend_from_slice(&self.lock_pub);
         self.nominated_by.write_canonical(out);
-        Ok(())
     }
 }
 
@@ -280,13 +284,13 @@ impl AnchorManifest {
         let server_count = u8::try_from(self.servers.len()).map_err(|_| "server count overflow")?;
         buf.push(server_count);
         for server in &self.servers {
-            server.write_canonical(&mut buf)?;
+            server.write_canonical(&mut buf);
         }
         let succ_count =
             u16::try_from(self.successors.len()).map_err(|_| "successor count overflow")?;
         buf.extend_from_slice(&succ_count.to_le_bytes());
         for succ in &self.successors {
-            succ.write_canonical(&mut buf)?;
+            succ.write_canonical(&mut buf);
         }
         buf.extend_from_slice(&self.authority.creator_mig_pub);
         let g_count = u8::try_from(self.authority.guarantor_mig_pubs.len())
@@ -417,6 +421,13 @@ mod tests {
         let json = serde_json::to_string(&m1).unwrap();
         let decoded: AnchorManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.rev1_anchor_id().unwrap(), id1);
+
+        // Relocating locator URLs with identical keys/nomination preserves anchor_id
+        let mut relocated = m1.clone();
+        relocated.servers[0].write_url = "https://moved-s1.example/sync.php".into();
+        relocated.servers[0].read_url = "https://moved-s1.example/d-0001".into();
+        assert_eq!(relocated.rev1_anchor_id().unwrap(), id1);
+        assert!(relocated.servers[0].same_identity(&m1.servers[0]));
     }
 
     #[test]

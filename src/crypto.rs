@@ -103,11 +103,8 @@ pub const PRE_PROPOSAL_FREEZE_TTL_SECS: u64 = 1_800;
 /// Mandatory proposal timelock in seconds allowing authority vetoes (`72 h`, Concept §5.4).
 pub const PROPOSAL_TIMELOCK_SECS: u64 = 72 * 3_600;
 
-/// Creator inactivity duration in seconds before guarantors may initiate rotation/swap (`30 d`).
+/// Creator inactivity duration in seconds before guarantors may initiate rotation (`30 d`).
 pub const CREATOR_INACTIVITY_TAKEOVER_SECS: u64 = 30 * 86_400;
-
-/// Claim window in seconds before dead-quorum re-issuance (`30 d`, Concept §5.7 / `LÜCKE-04c`).
-pub const DEAD_QUORUM_CLAIM_WINDOW_SECS: u64 = 30 * 86_400;
 
 /// Hard upper bound on `migration_chain` length to prevent unbounded manifest verification DoS.
 pub const MAX_MIGRATION_CHAIN_LEN: usize = 64;

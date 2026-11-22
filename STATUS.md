@@ -4,7 +4,7 @@
 **Last Updated:** 2026-11-21
 
 ## Overview
-Canonical wire formats, SHA-256 / BLAKE3 / SHA3-256 domain separators, quarterly retention utilities, and `#![forbid(unsafe_code)]` zero-trust Sync Lock verifiers shared across `human-money-core`, `humoco-sync`, and `human-money-app`.
+Canonical wire formats, SHA-256 / HMAC-SHA256 / SHA3-256 / Ed25519 domain separators, quarterly retention utilities, and `#![forbid(unsafe_code)]` zero-trust Sync Lock verifiers shared across `human-money-core`, `humoco-sync`, and transitively `human-money-app`.
 
 ## Task Progress
 

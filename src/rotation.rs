@@ -347,6 +347,13 @@ pub fn verify_nomination_binding(
         return Err("cannot expand creator-nominated seats without all guarantors co-signing");
     }
 
+    if !all_guarantors_signed
+        && !prev_manifest.authority.guarantor_mig_pubs.is_empty()
+        && proposal.new_threshold < prev_manifest.threshold
+    {
+        return Err("cannot reduce committee threshold without all guarantors co-signing");
+    }
+
     if prev_manifest.authority.guarantor_mig_pubs.is_empty()
         && prev_manifest.threshold >= 2
         && proposal.new_threshold < 2
@@ -1966,5 +1973,51 @@ mod tests {
             .verify_against_manifest(&aid_three, &rev1_three)
             .unwrap_err();
         assert!(err.contains("threshold 2"));
+    }
+
+    #[test]
+    fn test_nomination_binding_rejects_unconsented_threshold_reduction_with_guarantors() {
+        let (s1, _, _) = make_server(11, NominatedBy::Creator);
+        let (s2, _, _) = make_server(12, NominatedBy::Guarantor(0));
+        let (s3, _, _) = make_server(13, NominatedBy::Creator);
+        let creator_mig_sk = SigningKey::from_bytes(&[110; 32]);
+        let g0_mig_sk = SigningKey::from_bytes(&[111; 32]);
+        let rev1 = AnchorManifest {
+            revision: 1,
+            threshold: 3,
+            servers: vec![s1.clone(), s2.clone(), s3.clone()],
+            successors: Vec::new(),
+            authority: AnchorAuthority {
+                creator_mig_pub: creator_mig_sk.verifying_key().to_bytes(),
+                guarantor_mig_pubs: vec![g0_mig_sk.verifying_key().to_bytes()],
+            },
+            migration_chain: Vec::new(),
+            issued_at_ms: 1_760_000_000_000,
+            retain_until_quarter: encode_quarter(2031, 1).unwrap(),
+        };
+        let anchor_id = rev1.rev1_anchor_id().unwrap();
+
+        let mut prop = MigrationProposal {
+            anchor_id,
+            from_rev: 1,
+            to_rev: 2,
+            new_threshold: 2,
+            new_servers: vec![s1, s2, s3],
+            new_successors: Vec::new(),
+            retain_until_quarter: rev1.retain_until_quarter,
+            proposed_at: 1_760_100_000,
+            initiator: ProposalInitiator::Creator,
+            proposer_sig: None,
+            guarantor_cosigs: Vec::new(),
+        };
+        prop.proposer_sig = Some(creator_mig_sk.sign(&prop.core_digest().unwrap()).to_bytes());
+        let err = verify_nomination_binding(&rev1, &prop).unwrap_err();
+        assert!(err.contains("reduce committee threshold"));
+
+        prop.guarantor_cosigs = vec![GuarantorCosig {
+            guarantor_index: 0,
+            sig: g0_mig_sk.sign(&prop.core_digest().unwrap()).to_bytes(),
+        }];
+        assert!(verify_nomination_binding(&rev1, &prop).is_ok());
     }
 }

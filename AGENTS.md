@@ -36,3 +36,5 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+- **Test & Diff Integrity:** For protocol/verifier diffs, run `cargo mutants --in-diff <diff> --offline` (when installed) or verify a Revert-Red check; assert exact error variants + boundary/positive controls (no bare `.is_err()` or hollowed existing tests).
